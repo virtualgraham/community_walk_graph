@@ -5,6 +5,9 @@ use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::collections::HashMap;
 use rand::Rng;
+use rand::thread_rng;
+
+use dashmap::DashMap;
 use rayon::prelude::*;
 
 #[pyclass]
@@ -115,14 +118,6 @@ fn neighbors_recursive(graph: &Graph, node_id: &u64, radius: &usize, path: HashS
 }
 
 #[pyfunction]
-pub fn communities(graph: &Graph, node_ids: Vec<u64>, len: usize, trials: usize, member_portion: usize) -> Vec<Vec<u64>> {
-    node_ids.into_par_iter().map(|node_id| {
-        community(&graph, node_id, len, trials, member_portion)
-    }).collect()
-}
-
-
-#[pyfunction]
 pub fn community(graph: &Graph, node_id: u64, len: usize, trials: usize, member_portion: usize) -> Vec<u64> {
     let visited = random_walk(graph, node_id, len, trials);
     visited.iter().filter(|x| *x.1 > member_portion).map(|x| x.0.clone()).collect()
@@ -130,17 +125,17 @@ pub fn community(graph: &Graph, node_id: u64, len: usize, trials: usize, member_
 
 #[pyfunction]
 pub fn random_walk(graph: &Graph, node_id: u64, len: usize, trials: usize) -> HashMap<u64, usize> {
-    let mut visited:HashMap<u64, usize> = HashMap::new();
-    let mut rng = rand::thread_rng();
+    let visited = DashMap::new();
 
-    for _ in 0..trials {
+    (0..trials).into_par_iter().for_each(|_| {
+        let mut rng = thread_rng();
         let mut cur = node_id.clone();
         for _ in 0..len {
             if let Some(nei) = graph.nodes.get(&cur) {
                 if !nei.is_empty() {
                     cur = nei[rng.gen_range(0, nei.len())].clone();
                     if visited.contains_key(&cur) {
-                        visited.insert(cur, visited.get(&cur).unwrap()+1);
+                        visited.alter(&cur, |_, v| v + 1);
                     } else {
                         visited.insert(cur, 1);
                     }
@@ -149,9 +144,9 @@ pub fn random_walk(graph: &Graph, node_id: u64, len: usize, trials: usize) -> Ha
             }
             break
         }
-    }
+    });
 
-    return visited
+    visited.iter().map(|x| (*x.key(), *x.value())).collect()
 }
 
 #[pymodule]
@@ -165,7 +160,6 @@ fn community_walk_graph(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(remove_edge)).unwrap();
     m.add_wrapped(wrap_pyfunction!(neighbors)).unwrap();
     m.add_wrapped(wrap_pyfunction!(community)).unwrap();
-    m.add_wrapped(wrap_pyfunction!(communities)).unwrap();
     m.add_wrapped(wrap_pyfunction!(random_walk)).unwrap();
     Ok(())
 }
