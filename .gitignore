@@ -1,0 +1,5 @@
+/dist
+/target
+/pkg
+.DS_Store
+/.history

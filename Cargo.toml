@@ -1,0 +1,6 @@
+[package]
+name = "community-walk-graph"
+description = "An in-memory graph for finding communities with random walks"
+version = "0.1.0"
+readme = "README.md"
+edition = "2018"
