@@ -54,4 +54,4 @@ print(communities_result)
 - `node_ids`: A list of positive integer node ids 
 - `len`: The length of each random walk. Larger lengths find larger communities
 - `trials`: The number of random walks to run per node. More trials leads to more consistent results.
-- `member_portion`: An integer between `0` and `trials`. Nodes are only included in community if they appear in `member_portion` or more number of random walks. High `member_portion` leads to smaller more consistent communities, and larger `member_portion` leads to larger more variable communities.
+- `member_portion`: An integer between `0` and `trials`. Nodes are only included in community if they appear in `member_portion` or more number of random walks. High `member_portion` leads to smaller more consistent communities, and lower `member_portion` leads to larger more variable communities.
