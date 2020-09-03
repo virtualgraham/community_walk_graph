@@ -1,7 +1,7 @@
 [package]
 name = "community_walk_graph"
 description = "An in-memory graph for finding communities with random walks"
-version = "0.2.0"
+version = "0.2.1"
 readme = "README.md"
 edition = "2018"
 authors = ["Graham Shapiro <virtualgraham@gmail.com>"]

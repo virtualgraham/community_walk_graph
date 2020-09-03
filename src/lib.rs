@@ -121,6 +121,9 @@ fn neighbors_recursive(graph: &Graph, node_id: &u64, radius: &usize, path: HashS
 
 
 /*
+
+intended to optimize community search for nodes that are likely close together
+
 if active nodes is empty:
     if unwalked_nodes is empty: 
         finished
@@ -135,6 +138,7 @@ for each active node:
 if current node is in unwalked_nodes and not in active_nodes
     insert current_node into active_node
     set active node time
+    
 */
 
 
@@ -143,18 +147,15 @@ pub fn communities(graph: &Graph, node_ids: Vec<u64>, len: usize, trials: usize,
 
     let nodes:DashMap<(u64, u64), usize> = DashMap::new(); // dashmap<(node_id, visited_node_id), count>
 
-
     (0..trials).into_par_iter().for_each(|_| {
 
         let mut t = 0;
-
         let mut unwalked_nodes:HashSet<u64> = HashSet::from_iter(node_ids.iter().cloned()); // set<node_id>
         let mut active_nodes:HashMap<u64, usize> = HashMap::new(); // map<node_id, time>
         let mut current_node:u64 = 0;
         let mut rng = rand::thread_rng();
 
         loop {
-
             if active_nodes.is_empty() {
                 if unwalked_nodes.is_empty() {
                     break;
@@ -196,37 +197,32 @@ pub fn communities(graph: &Graph, node_ids: Vec<u64>, len: usize, trials: usize,
                 unwalked_nodes.remove(&current_node);
                 active_nodes.insert(current_node.clone(), t.clone());
             }
-
         }
     });
     
-    let mut nodes_foo:HashMap<u64, HashMap<u64, usize>> = HashMap::new();
+    // convert from Map<(node_id, visited_node_id), count> to Map<node_id, Map<visited_node_id, count>>
+    let mut nodes_intermediate:HashMap<u64, HashMap<u64, usize>> = HashMap::new();
 
-    // <(node_id, visited_node_id), count>
     nodes.iter().for_each(|kv| {
         let (node_id, visited_node_id) = kv.key();
         let count = kv.value();
-        if nodes_foo.contains_key(node_id) {
-            nodes_foo.get_mut(node_id).unwrap().insert(visited_node_id.clone(), count.clone());
+        if nodes_intermediate.contains_key(node_id) {
+            nodes_intermediate.get_mut(node_id).unwrap().insert(visited_node_id.clone(), count.clone());
         } else {
-            let mut bar:HashMap<u64, usize> = HashMap::new();
-            bar.insert(visited_node_id.clone(), count.clone());
-            nodes_foo.insert(node_id.clone(), bar);
-        }
-    });
-    
-    let mut result:Vec<Vec<u64>> = Vec::new();
-
-    node_ids.iter().for_each(|node_id| {
-        if nodes_foo.contains_key(node_id) {
-            let visited = &nodes_foo[node_id];
-            result.push(visited.iter().filter(|x| *x.1 > member_portion).map(|x| x.0.clone()).collect())
-        } else {
-            result.push(Vec::new());
+            let mut visited:HashMap<u64, usize> = HashMap::new();
+            visited.insert(visited_node_id.clone(), count.clone());
+            nodes_intermediate.insert(node_id.clone(), visited);
         }
     });
 
-    return result
+    // convert Map<node_id, Map<visited_node_id, count>> to Vec<Vec<visited_node_id>> and filter for member_portion
+    return node_ids.iter().map(|node_id| {
+        if nodes_intermediate.contains_key(node_id) {
+            (&nodes_intermediate[node_id]).iter().filter(|x| *x.1 > member_portion).map(|x| x.0.clone()).collect()
+        } else {
+            Vec::new()
+        }
+    }).collect();
 }
 
 
