@@ -1,10 +1,10 @@
 [package]
 name = "community_walk_graph"
 description = "An in-memory graph for finding communities with random walks"
-version = "0.1.0"
+version = "0.2.0"
 readme = "README.md"
 edition = "2018"
-authors = ["Not-Simon <not_simon@not_simon.com>"]
+authors = ["Graham Shapiro <virtualgraham@gmail.com>"]
 
 [lib]
 name = "community_walk_graph"
@@ -17,3 +17,4 @@ features = ["extension-module"]
 [dependencies]
 rand = "0.7"
 rayon = "1.1"
+dashmap = "3.11.10"

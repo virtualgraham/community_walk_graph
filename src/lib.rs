@@ -1,22 +1,26 @@
 use pyo3::prelude::*;
 use pyo3::wrap_pyfunction;
 
-use std::collections::BTreeMap;
-use std::collections::HashSet;
 use std::collections::HashMap;
+use std::collections::HashSet;
+use std::iter::FromIterator;
+
 use rand::Rng;
 use rayon::prelude::*;
 
+use dashmap::DashMap;
+
+
 #[pyclass]
 pub struct Graph {
-    pub nodes: BTreeMap<u64, Vec<u64>>
+    pub nodes: HashMap<u64, Vec<u64>>
 }
 
 
 #[pyfunction]
 pub fn new_graph() -> Graph {
     Graph {
-        nodes: BTreeMap::new()
+        nodes: HashMap::new()
     }
 }
 
@@ -96,6 +100,7 @@ pub fn neighbors(graph: &Graph, node_id: u64, radius: usize) -> Vec<u64> {
     return neighbors_recursive(graph, &node_id, &radius, HashSet::new()).iter().cloned().collect()
 }
 
+
 fn neighbors_recursive(graph: &Graph, node_id: &u64, radius: &usize, path: HashSet<u64>) -> HashSet<u64> {
     let mut result:HashSet<u64> = HashSet::new();
     if let Some(edge_list) = graph.nodes.get(node_id) {
@@ -114,11 +119,114 @@ fn neighbors_recursive(graph: &Graph, node_id: &u64, radius: &usize, path: HashS
     return result
 }
 
+
+/*
+if active nodes is empty:
+    if unwalked_nodes is empty: 
+        finished
+    curent_node = remove random node from unwalked_nodes
+    insert current_node into active_node at t 
+            current_node = random neighbor of current_node
+for each active node:
+    increment visited count for current node
+    if t - active_node_times == len:
+        remove active node and put it in walked nodes
+
+if current node is in unwalked_nodes and not in active_nodes
+    insert current_node into active_node
+    set active node time
+*/
+
+
 #[pyfunction]
 pub fn communities(graph: &Graph, node_ids: Vec<u64>, len: usize, trials: usize, member_portion: usize) -> Vec<Vec<u64>> {
-    node_ids.into_par_iter().map(|node_id| {
-        community(&graph, node_id, len, trials, member_portion)
-    }).collect()
+
+    let nodes:DashMap<(u64, u64), usize> = DashMap::new(); // dashmap<(node_id, visited_node_id), count>
+
+
+    (0..trials).into_par_iter().for_each(|_| {
+
+        let mut t = 0;
+
+        let mut unwalked_nodes:HashSet<u64> = HashSet::from_iter(node_ids.iter().cloned()); // set<node_id>
+        let mut active_nodes:HashMap<u64, usize> = HashMap::new(); // map<node_id, time>
+        let mut current_node:u64 = 0;
+        let mut rng = rand::thread_rng();
+
+        loop {
+
+            if active_nodes.is_empty() {
+                if unwalked_nodes.is_empty() {
+                    break;
+                }
+                current_node = unwalked_nodes.iter().next().unwrap().clone();
+                unwalked_nodes.remove(&current_node);
+                active_nodes.insert(current_node.clone(), t.clone());
+            }
+
+            t += 1;
+
+            let current_node_neighbors = match graph.nodes.get(&current_node) {
+                Some(neighbors) => {
+                    if neighbors.is_empty() {
+                        active_nodes.remove(&current_node);
+                        continue
+                    }
+                    neighbors
+                },
+                None => {
+                    active_nodes.remove(&current_node);
+                    continue
+                }
+            };
+
+            current_node = current_node_neighbors[rng.gen_range(0, current_node_neighbors.len())].clone();
+   
+            active_nodes.retain(|active_node, time| {
+                let key = (active_node.clone(), current_node);
+                if nodes.contains_key(&key) {
+                    nodes.alter(&key, |_, v| v + 1);
+                } else {
+                    nodes.insert(key, 1);
+                }
+                return (t - *time) <= len
+            });
+            
+            if unwalked_nodes.contains(&current_node) {
+                unwalked_nodes.remove(&current_node);
+                active_nodes.insert(current_node.clone(), t.clone());
+            }
+
+        }
+    });
+    
+    let mut nodes_foo:HashMap<u64, HashMap<u64, usize>> = HashMap::new();
+
+    // <(node_id, visited_node_id), count>
+    nodes.iter().for_each(|kv| {
+        let (node_id, visited_node_id) = kv.key();
+        let count = kv.value();
+        if nodes_foo.contains_key(node_id) {
+            nodes_foo.get_mut(node_id).unwrap().insert(visited_node_id.clone(), count.clone());
+        } else {
+            let mut bar:HashMap<u64, usize> = HashMap::new();
+            bar.insert(visited_node_id.clone(), count.clone());
+            nodes_foo.insert(node_id.clone(), bar);
+        }
+    });
+    
+    let mut result:Vec<Vec<u64>> = Vec::new();
+
+    node_ids.iter().for_each(|node_id| {
+        if nodes_foo.contains_key(node_id) {
+            let visited = &nodes_foo[node_id];
+            result.push(visited.iter().filter(|x| *x.1 > member_portion).map(|x| x.0.clone()).collect())
+        } else {
+            result.push(Vec::new());
+        }
+    });
+
+    return result
 }
 
 
