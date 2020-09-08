@@ -1,6 +1,6 @@
 # Community Walk Graph
 
-An in-memory undirected graph for finding communities with random walks
+An in-memory undirected graph optimized for a specific random walk community search problem
 
 Written in Rust using pyo3 for use in Python
 
@@ -39,7 +39,7 @@ cwg.add_edge(graph, 19, 20)
 cwg.add_edge(graph, 20, 1)
 
 # Query 5 nodes from each side of the ring
-communities_result = cwg.communities(graph, [1,2,3,4,5, 11,12,13,14,15], 7, 100, 50)
+communities_result = cwg.communities_range(graph, [1,2,3,4,5, 11,12,13,14,15], 3, 6, 100, 50)
 print(communities_result)
 
 # Returns the communities of each of the queried nodes
@@ -48,10 +48,26 @@ print(communities_result)
 
 ## Parameters
 
+
 `communities(graph, node_ids, len, trials, member_portion)`
 
 - `graph`: The graph created by `cwg.new_graph()`
 - `node_ids`: A list of positive integer node ids 
 - `len`: The length of each random walk. Larger lengths find larger communities
+- `trials`: The number of random walks to run per node. More trials leads to more consistent results.
+- `member_portion`: An integer between `0` and `trials`. Nodes are only included in community if they appear in `member_portion` or more number of random walks. High `member_portion` leads to smaller more consistent communities, and lower `member_portion` leads to larger more variable communities.
+
+
+
+`communities_range(graph, node_ids, log2_min_len, log2_max_len, trials, member_portion)`
+
+Returns a set of communities for each `node_id` provided based on the range of walk lengths specified by `log2_min_len` and `log2_max_len`
+
+For example if `log2_min_len == 3` and `log2_max_len == 6` it will find communities using walk lengths, 8, 16, 32 and 64
+
+- `graph`: The graph created by `cwg.new_graph()`
+- `node_ids`: A list of positive integer node ids 
+- `log2_min_len`: min walk length is 2^log2_min_len
+- `log2_max_len`: max walk length is 2^log2_max_len
 - `trials`: The number of random walks to run per node. More trials leads to more consistent results.
 - `member_portion`: An integer between `0` and `trials`. Nodes are only included in community if they appear in `member_portion` or more number of random walks. High `member_portion` leads to smaller more consistent communities, and lower `member_portion` leads to larger more variable communities.

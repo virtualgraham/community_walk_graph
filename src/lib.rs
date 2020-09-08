@@ -1,5 +1,6 @@
 use pyo3::prelude::*;
 use pyo3::wrap_pyfunction;
+use std::cmp::max;
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -122,6 +123,9 @@ fn neighbors_recursive(graph: &Graph, node_id: &u64, radius: &usize, path: HashS
 
 /*
 
+returns a set of communities for each node id provided based on the range of walk lengths specified by log2_min_len and log2_max_len
+for example if log2_min_len == 3 and log2_max_len == 6 it will find communities using walk lengths, 8, 16, 32 and 64
+
 intended to optimize community search for nodes that are likely close together
 
 if active nodes is empty:
@@ -140,6 +144,140 @@ if current node is in unwalked_nodes and not in active_nodes
     set active node time
     
 */
+
+// typical
+// log2_min_len = 3
+// log2_max_len = 12
+
+#[pyfunction]
+pub fn communities_range(graph: &Graph, node_ids: Vec<u64>, log2_min_len: usize, log2_max_len: usize, trials: usize, member_portion: usize) -> Vec<Vec<Vec<u64>>> {
+
+    assert!(log2_max_len >= log2_min_len);
+
+    let nodes:DashMap<(u64, usize, u64), usize> = DashMap::new(); // dashmap<(node_id, visited_node_id, bin), count>
+
+    (0..trials).into_par_iter().for_each(|_| {
+
+        let mut t = 0;
+        let mut unwalked_nodes:HashSet<u64> = HashSet::from_iter(node_ids.iter().cloned()); // set<node_id>
+        let mut active_nodes:HashMap<u64, usize> = HashMap::new(); // map<node_id, time>
+        let mut current_node:u64 = 0;
+        let mut rng = rand::thread_rng();
+
+        loop {
+            if active_nodes.is_empty() {
+                if unwalked_nodes.is_empty() {
+                    break;
+                }
+                current_node = unwalked_nodes.iter().next().unwrap().clone();
+                unwalked_nodes.remove(&current_node);
+                active_nodes.insert(current_node.clone(), t.clone());
+            }
+
+            t += 1;
+
+            let current_node_neighbors = match graph.nodes.get(&current_node) {
+                Some(neighbors) => {
+                    if neighbors.is_empty() {
+                        active_nodes.remove(&current_node);
+                        continue
+                    }
+                    neighbors
+                },
+                None => {
+                    active_nodes.remove(&current_node);
+                    continue
+                }
+            };
+
+            current_node = current_node_neighbors[rng.gen_range(0, current_node_neighbors.len())].clone();
+   
+            active_nodes.retain(|active_node, time| {
+                let active_node_time = t - *time;
+                let bin = max(log2_min_len, (active_node_time as f32).log(2.0).ceil() as usize);
+                let key = (active_node.clone(), bin, current_node);
+                if nodes.contains_key(&key) {
+                    nodes.alter(&key, |_, v| v + 1);
+                } else {
+                    nodes.insert(key, 1);
+                }
+                return active_node_time <= 2usize.pow(log2_max_len as u32)
+            });
+            
+            if unwalked_nodes.contains(&current_node) {
+                unwalked_nodes.remove(&current_node);
+                active_nodes.insert(current_node.clone(), t.clone());
+            }
+        }
+    });
+    
+    // convert from Map<(node_id, bin, visited_node_id), count> to Map<node_id, Map<bin, Map<visited_node_id, count>>>
+    let mut nodes_intermediate:HashMap<u64, HashMap<usize, HashMap<u64, usize>>> = HashMap::new();
+
+    nodes.iter().for_each(|kv| {
+        let (node_id, bin, visited_node_id) = kv.key();
+        let count = kv.value();
+        
+        if nodes_intermediate.contains_key(node_id) {
+
+            let bins = nodes_intermediate.get_mut(node_id).unwrap();
+            
+            if bins.contains_key(&bin) {
+
+                bins.get_mut(bin).unwrap().insert(visited_node_id.clone(), count.clone());
+
+            } else {
+
+                let mut visited_nodes:HashMap<u64, usize> = HashMap::new();
+                visited_nodes.insert(visited_node_id.clone(), count.clone());
+                bins.insert(bin.clone(), visited_nodes);
+
+            }
+        
+        } else {
+
+            let mut bins:HashMap<usize, HashMap<u64,usize>> = HashMap::new();
+            let mut visited:HashMap<u64, usize> = HashMap::new();
+            visited.insert(visited_node_id.clone(), count.clone());
+            bins.insert(bin.clone(), visited);
+            nodes_intermediate.insert(node_id.clone(), bins);
+
+        }
+    });
+
+    // convert Map<node_id, Map<bin, Map<visited_node_id, count>>> to Vec<Vec<Vec<visited_node_id>>> and filter for member_portion
+    return node_ids.iter().map(|node_id| {
+        if nodes_intermediate.contains_key(node_id) {
+
+            let mut m:HashMap<u64,usize> = HashMap::new();
+            let mut v:Vec<Vec<u64>> = Vec::new();
+
+            (log2_min_len..(log2_max_len+1)).for_each(|bin| {
+                
+                if nodes_intermediate[node_id].contains_key(&bin) {
+                    let bins = &nodes_intermediate[node_id][&bin];
+                    for (key, val) in bins.iter() {
+                        if m.contains_key(key) {
+                            *m.get_mut(key).unwrap() += val;
+                        } else {
+                            m.insert(key.clone(), val.clone());
+                        }
+                    }
+                }
+
+                v.push(m.iter().filter(|x| *x.1 > member_portion).map(|x| x.0.clone()).collect())
+ 
+            });
+
+            return v
+
+        } else {
+
+            (log2_min_len..(log2_max_len+1)).map(|_| Vec::new()).collect()
+
+        }
+    }).collect();
+}
 
 
 #[pyfunction]
@@ -226,6 +364,7 @@ pub fn communities(graph: &Graph, node_ids: Vec<u64>, len: usize, trials: usize,
 }
 
 
+
 #[pyfunction]
 pub fn community(graph: &Graph, node_id: u64, len: usize, trials: usize, member_portion: usize) -> Vec<u64> {
     let visited = random_walk(graph, node_id, len, trials);
@@ -270,6 +409,7 @@ fn community_walk_graph(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(neighbors)).unwrap();
     m.add_wrapped(wrap_pyfunction!(community)).unwrap();
     m.add_wrapped(wrap_pyfunction!(communities)).unwrap();
+    m.add_wrapped(wrap_pyfunction!(communities_range)).unwrap();
     m.add_wrapped(wrap_pyfunction!(random_walk)).unwrap();
     Ok(())
 }
